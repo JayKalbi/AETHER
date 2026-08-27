@@ -1,0 +1,58 @@
+# Configuration for Experiment 001: Failure Predictability Benchmark
+project_name: "aether_exp001"
+global_seed: 101
+data_dir: "data/camels_us"
+artifacts_dir: "artifacts/exp001"
+
+temporal_splits:
+  train_start: "1980-10-01"
+  train_end: "2000-09-30"
+  val_start: "2000-10-01"
+  val_end: "2005-09-30"
+  cal_start: "2005-10-01"
+  cal_end: "2010-09-30"
+  test_start: "2010-10-01"
+  test_end: "2018-09-30"
+  lookback_days: 365
+  forecast_horizon_days: 1
+
+base_model:
+  model_type: "ea_lstm"
+  hidden_size: 256
+  num_layers: 1
+  dropout: 0.40
+  learning_rate: 0.001
+  batch_size: 256
+  epochs: 30
+  early_stopping_patience: 5
+  seeds:
+    - 101
+
+uncertainty:
+  alpha: 0.10
+  quantiles:
+    - 0.05
+    - 0.50
+    - 0.95
+
+reliability:
+  learning_rate: 0.03
+  num_leaves: 31
+  max_depth: 6
+  min_child_samples: 50
+  subsample: 0.80
+  colsample_bytree: 0.80
+  n_estimators: 500
+  early_stopping_rounds: 25
+  cal_cv_folds: 5
+  seed: 42
+
+labels:
+  primary_metric: "nafe"
+  primary_threshold: 1.0
+  sensitivity_thresholds:
+    - 1.0
+    - 1.5
+    - 2.0
+    - 2.5
+    - 3.0

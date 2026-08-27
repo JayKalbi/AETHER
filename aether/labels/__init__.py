@@ -1,0 +1,3 @@
+"""
+Forecast failure label generators.
+"""

@@ -1,0 +1,90 @@
+# ==============================================================================
+# AETHER .gitignore
+# ==============================================================================
+
+# Python Bytecode & Build Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+aethervenv/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.uv/
+
+# Testing, Quality & Caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Datasets (Raw, Cached, & Intermediate Processed)
+# CRITICAL: aether/data/ contains package source code and MUST NOT be ignored.
+data/
+*.nc
+*.nc4
+*.h5
+*.hdf5
+*.parquet
+*.feather
+*.csv.gz
+*.tar.gz
+*.zip
+
+# Model Checkpoints, Weights & Run Artifacts
+checkpoints/
+artifacts/
+logs/
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.lgb
+mlruns/
+wandb/
+
+# IDEs, OS & Local Tool Databases
+.freebuff/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.pem
+*.key
+*.secret

@@ -1,0 +1,44 @@
+# ==============================================================================
+# AETHER Code Ownership Allocation
+# ==============================================================================
+# PLACEHOLDER USERNAMES: Replace @lead-researcher, @engineer-1, @engineer-2
+# with exact GitHub handles before enabling repository branch protection rules.
+#
+# Contributor Roles:
+# - Project Lead & Scientific Architect (@lead-researcher)
+# - Research Engineer 1 / Data & Features (@engineer-1)
+# - Research Engineer 2 / Modeling & Uncertainty (@engineer-2)
+# ==============================================================================
+
+# Default global owners
+* @lead-researcher
+
+# Data ingestion, Basin registry, Split management
+aether/data/ @engineer-1 @lead-researcher
+
+# Failure label definitions & Normalization
+aether/labels/ @engineer-1 @lead-researcher
+
+# Causal feature extraction pipeline (Groups A-E)
+aether/features/ @engineer-1 @lead-researcher
+
+# Base forecasting models & NeuralHydrology adapters
+aether/forecasting/ @engineer-2 @lead-researcher
+
+# Uncertainty quantification & Conformal prediction (CQR)
+aether/uncertainty/ @engineer-2 @lead-researcher
+
+# Reliability estimation & Probability calibration
+aether/reliability/ @engineer-2 @lead-researcher
+
+# Selective prediction & Risk-coverage evaluation
+aether/selection/ @engineer-2 @lead-researcher
+
+# Statistical testing, Resampling & Metrics
+aether/evaluation/ @lead-researcher @engineer-1
+
+# Automated Leakage Test Suite & Unit tests
+tests/ @lead-researcher @engineer-1 @engineer-2
+
+# CI/CD Workflows & GitHub Configuration
+.github/ @lead-researcher

@@ -1,44 +1,44 @@
 # ==============================================================================
 # AETHER Code Ownership Allocation
 # ==============================================================================
-# PLACEHOLDER USERNAMES: Replace @lead-researcher, @engineer-1, @engineer-2
+# PLACEHOLDER USERNAMES: Replace @JayKalbi, @Evara2, @Vanshi3
 # with exact GitHub handles before enabling repository branch protection rules.
 #
 # Contributor Roles:
-# - Project Lead & Scientific Architect (@lead-researcher)
-# - Research Engineer 1 / Data & Features (@engineer-1)
-# - Research Engineer 2 / Modeling & Uncertainty (@engineer-2)
+# - Project Lead & Scientific Architect (@JayKalbi)
+# - Research Engineer 1 / Data & Features (@Evara2)
+# - Research Engineer 2 / Modeling & Uncertainty (@Vanshi3)
 # ==============================================================================
 
 # Default global owners
-* @lead-researcher
+* @JayKalbi
 
 # Data ingestion, Basin registry, Split management
-aether/data/ @engineer-1 @lead-researcher
+aether/data/ @Evara2 @JayKalbi
 
 # Failure label definitions & Normalization
-aether/labels/ @engineer-1 @lead-researcher
+aether/labels/ @Evara2 @JayKalbi
 
 # Causal feature extraction pipeline (Groups A-E)
-aether/features/ @engineer-1 @lead-researcher
+aether/features/ @Evara2 @JayKalbi
 
 # Base forecasting models & NeuralHydrology adapters
-aether/forecasting/ @engineer-2 @lead-researcher
+aether/forecasting/ @Vanshi3 @JayKalbi
 
 # Uncertainty quantification & Conformal prediction (CQR)
-aether/uncertainty/ @engineer-2 @lead-researcher
+aether/uncertainty/ @Vanshi3 @JayKalbi
 
 # Reliability estimation & Probability calibration
-aether/reliability/ @engineer-2 @lead-researcher
+aether/reliability/ @Vanshi3 @JayKalbi
 
 # Selective prediction & Risk-coverage evaluation
-aether/selection/ @engineer-2 @lead-researcher
+aether/selection/ @Vanshi3 @JayKalbi
 
 # Statistical testing, Resampling & Metrics
-aether/evaluation/ @lead-researcher @engineer-1
+aether/evaluation/ @JayKalbi @Evara2
 
 # Automated Leakage Test Suite & Unit tests
-tests/ @lead-researcher @engineer-1 @engineer-2
+tests/ @JayKalbi @Evara2 @Vanshi3
 
 # CI/CD Workflows & GitHub Configuration
-.github/ @lead-researcher
+.github/ @JayKalbi

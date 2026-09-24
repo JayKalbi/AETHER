@@ -46,8 +46,9 @@ htmlcov/
 .hypothesis/
 
 # Datasets (Raw, Cached, & Intermediate Processed)
-# CRITICAL: aether/data/ contains package source code and MUST NOT be ignored.
-data/
+# CRITICAL: aether/data/ and tests/data/ contain source code and tests and MUST NOT be ignored.
+/data/
+
 *.nc
 *.nc4
 *.h5

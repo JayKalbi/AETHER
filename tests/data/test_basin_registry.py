@@ -192,4 +192,3 @@ class TestBenchmarkRegistry:
         empty_attr_dir.mkdir()
         registry = load_benchmark_registry(attributes_dir=empty_attr_dir)
         assert registry.total_benchmark_count == 531
-

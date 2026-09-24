@@ -283,7 +283,9 @@ def _load_metadata_from_attributes(
             aridity_index=float(clim_row.get("aridity", 0.0)),
             fraction_snow=float(clim_row.get("frac_snow", 0.0)),
             is_benchmark=is_bench,
-            exclusion_reason=None if is_bench else "Catchment area > 2000 km2 or area discrepancy > 10%",
+            exclusion_reason=None
+            if is_bench
+            else "Catchment area > 2000 km2 or area discrepancy > 10%",
         )
         metadata_map[gauge_str] = record
 

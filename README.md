@@ -5,24 +5,116 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-AETHER is an open research and engineering framework investigating whether **pre-outcome information** (predictive uncertainty representations, input-space out-of-distribution signals, and hydrologically informed domain diagnostics) can **predict streamflow forecast failure** before ground truth arrives, and whether the resulting reliability estimate enables **selective forecasting** during environmental extremes.
+**AETHER** is an open-source, reproducible, model-agnostic reliability and selective decision framework for hydrological forecasting.
 
 ---
 
-## 1. Scientific & Project Status
+## 1. Central Scientific Question
 
-* **Current Phase:** Gate R0 Complete — Implementation Kickoff (Milestone 1.0 / MVP v0.1).
-* **Research Status:** Conceptual research and hostile audits (Phase 0 through Phase 0.9) are complete. The experimental specification is frozen in [AETHER_Phase_1.0_Implementation_Freeze.md](AETHER_Phase_1.0_Implementation_Freeze.md).
-* **Target Benchmark:** CAMELS-US v1.2 (531 non-impacted benchmark catchments).
-* **Primary Objective:** Empirically test Hypothesis H1 (failure predictability) and Hypothesis H2 (incremental value of hydrological domain features).
+A conventional forecasting pipeline issues predictions and acts upon them without knowing whether the model has entered a failure mode:
 
----
-
-## 2. Repository Architecture
-
+```text
+Hydrological data ──► Forecast Model ──► Forecast ──► Act unconditionally
 ```
+
+AETHER introduces a pre-outcome reliability and selective decision layer:
+
+```text
+Hydrological data
+      ↓
+Forecast Model ──► Forecast
+                         │
+                         ▼
+             ┌─────────────────────────┐
+             │         AETHER          │
+             │                         │
+             │ Pre-Outcome Reliability │
+             │ & Selective Estimation  │
+             └───────────┬─────────────┘
+                         │
+                         ▼
+                  Decision Policy
+                 ↙       ↓       ↘
+             RELEASE   REFINE   ABSTAIN
+```
+
+Its central research question is:
+
+> **"Can we predict whether a hydrological forecast is likely to fail before the ground-truth outcome becomes available, and use that reliability estimate to make calibrated accept/refine/abstain decisions?"**
+
+---
+
+## 2. What AETHER Is NOT
+
+To maintain clear scientific boundaries, AETHER is explicitly **not**:
+
+- **Not another flood-prediction model:** The objective is not to design a new rainfall-runoff architecture.
+- **Not another LSTM/Transformer forecaster:** AETHER wraps around existing forecasting models in a model-agnostic manner.
+- **Not a generic uncertainty estimation library:** Uncertainty representations (such as conformal intervals or ensemble spread) serve strictly as pre-outcome features rather than the end product.
+- **Not a dashboard project:** Visualization tools support the research; they do not substitute for validated scientific methods.
+- **Not an ad-hoc collection of hydrology notebooks:** The repository is an auditable, test-driven research engineering framework.
+
+---
+
+## 3. Documentation Hierarchy & Governance
+
+The repository maintains an explicit separation of roles across its documentation:
+
+```text
+docs/
+├── AETHER_RESEARCH_NORTH_STAR.md          # Canonical scientific vision & standing decision guide
+├── AETHER_Phase_1.0_Implementation_Freeze.md # Phase 1.0 experimental specification & contracts
+├── reproducibility.md                     # Provenance logging, seed policies & split invariants
+├── decisions/                             # Architectural Decision Records (ADRs)
+│   ├── README.md                          # ADR lifecycle rules & index
+│   ├── template.md                        # Standard decision template
+│   └── ADR-001-reliability-framework-architecture.md
+└── research/                              # Historical research & hostile audit archive
+    ├── aether_research_audit.md           # Phase 0 literature audit & product definition
+    ├── aether_hostile_review.md           # Phase 0.5 hostile scientific review & red-team
+    ├── AETHER_Research_Audit_Product_Definition.pdf
+    ├── AETHER_Phase_0.5_Hostile_Review.pdf
+    ├── Response from Hostile Audit till phase 0.5.docx
+    ├── Response from Hostile Audit till phase 0.5.pdf
+    └── Response from Hostile Audit till phase 0.75.pdf
+```
+
+### Documentation Roles
+
+* **Canonical Research Direction:** [docs/AETHER_RESEARCH_NORTH_STAR.md](docs/AETHER_RESEARCH_NORTH_STAR.md)
+  *The primary research reference.* Sets the ultimate scientific standards, hypothesis falsification requirements, and decision rules. Check this document before implementing features, altering baseline suites, or claiming novelty.
+* **Implementation Specification:** [docs/AETHER_Phase_1.0_Implementation_Freeze.md](docs/AETHER_Phase_1.0_Implementation_Freeze.md)
+  *The frozen Phase 1.0 contract.* Defines the operational baseline (EA-LSTM, CAMELS-US 531 basins, CQR uncertainty, LightGBM reliability estimator, NAFE failure label, and 4-way temporal partitioning).
+* **Reproducibility Contract:** [docs/reproducibility.md](docs/reproducibility.md)
+  *The experimental replication standard.* Defines mandatory `experiment_meta.json` logging, seed control, and artifact structures.
+* **Architectural Decision Records:** [docs/decisions/](docs/decisions/)
+  *Immutable design logs.* Documents significant technical and scientific pivots, beginning with [ADR-001](docs/decisions/ADR-001-reliability-framework-architecture.md).
+* **Historical Research & Audit Archive:** [docs/research/](docs/research/)
+  *Auditable research record.* Contains Phase 0–0.9 conceptual audits, hostile red-team reviews, and responses that led to the current formulation.
+
+---
+
+## 4. Current Development Roadmap (Phase 1.0 Foundation)
+
+Milestone 1.0 follows a rigorous, sequential execution plan:
+
+- [x] **R1.1 — CAMELS-US benchmark basin registry:** Canonical 531-basin registry and manifest verification.
+- [x] **R1.2 — CAMELS-US raw data loader:** Offline, unit-preserving parser for Daymet forcing, USGS streamflow, and catchment attributes.
+- [ ] **R1.3 — CAMELS-US Daymet forcing schema validation:** Structural schema and boundary validation for meteorological inputs. *(NEXT)*
+- [ ] **R1.4 — CAMELS-US discharge conversion validation:** Area-normalized discharge conversion ($cfs \to mm/\text{day}$).
+- [ ] **R1.5 — CAMELS-US missing-data quality control:** Streamflow QC masking and missing-rate filtering protocols.
+- [ ] **R1.6 — Leakage-safe temporal split manager:** Non-overlapping receptive fields across Train (`1980–2000`), Val (`2000–2005`), Cal (`2005–2010`), and Test (`2010–2018`).
+- [ ] **R1.7 — 366-day lookback buffer enforcement:** History buffer prepending without label evaluation contamination.
+- [ ] **R1.8 — Automated CAMELS-US data leakage test suite:** 14-point automated test suite guarding against temporal, spatial, and feature leakage.
+- [ ] **R1.9 — CAMELS-US provenance and reproducibility documentation:** Full audit trial and end-to-end data pipeline verification.
+
+---
+
+## 5. Repository Architecture
+
+```text
 aether/
-├── configs/          # YAML configuration schemas and Pydantic validation models
+├── configs/          # YAML configuration schemas and validation models
 ├── data/             # CAMELS-US ingestion, basin registry, split manager
 ├── forecasting/      # Base EA-LSTM forecasting models & quantile heads
 ├── uncertainty/      # Conformalized Quantile Regression (CQR) engine
@@ -39,28 +131,17 @@ tests/
 ├── data/             # Basin registry and dataset loader integrity checks
 ├── leakage/          # Automated 14-point causal filtration and split isolation tests
 └── integration/      # End-to-end pipeline benchmark tests
-
-docs/
-├── reproducibility.md # Scientific reproducibility contract and metadata standards
-└── decisions/        # Architectural Decision Records (ADRs)
 ```
 
 ---
 
-## 3. Separation of Source Code and External Datasets
-
-* **Source Code:** All data loaders, feature extractors, and split algorithms live in `aether/data/` and `aether/features/` and are tracked by Git.
-* **Datasets (Raw & Processed):** Raw CAMELS-US files and generated Parquet feature tables are placed in `data/camels_us/` and `artifacts/`, which are explicitly excluded from Git tracking via `.gitignore`.
-
----
-
-## 4. Quickstart & Environment Setup
+## 6. Quickstart & Environment Setup
 
 AETHER uses [`uv`](https://github.com/astral-sh/uv) for fast, deterministic dependency management.
 
 ```bash
 # Clone repository
-git clone <repo-url>
+git clone https://github.com/JayKalbi/AETHER.git
 cd Aether
 
 # Create virtual environment
@@ -72,28 +153,25 @@ uv venv aethervenv
 # Linux/macOS:
 source aethervenv/bin/activate
 
-# Install AETHER in editable mode with development dependencies
-uv pip install -e ".[dev]"
+# Install locked dependencies into environment
+uv sync --locked --dev
 ```
 
 ---
 
-## 5. Running the Test Suite & Linting
+## 7. Running Verification & Tests
 
 ```bash
-# Run all unit tests
-pytest -v
-
-# Run the automated data leakage test suite
-pytest tests/leakage/ -v
+# Run all unit and data loader tests
+uv run pytest -v
 
 # Run Ruff linter and formatter checks
-ruff check .
-ruff format --check .
+uv run ruff check .
+uv run ruff format --check .
 ```
 
 ---
 
-## 6. Contributor Workflow
+## 8. Contributor Workflow
 
-Please review [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming conventions (`feature/*`, `fix/*`, `exp/*`), commit conventions (Conventional Commits), and PR review guidelines for our three-person team.
+Please review [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming conventions (`feature/*`, `fix/*`, `docs/*`, `exp/*`), Conventional Commits formatting, and pull request requirements.

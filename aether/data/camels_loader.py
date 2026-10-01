@@ -10,9 +10,108 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import pandas as pd
 
 from aether.data.basin_registry import BenchmarkRegistry
+
+DAYMET_RAW_FORCING_COLUMNS = (
+    "Year",
+    "Mnth",
+    "Day",
+    "Hr",
+    "dayl(s)",
+    "prcp(mm/day)",
+    "srad(W/m2)",
+    "swe(mm)",
+    "tmax(C)",
+    "tmin(C)",
+    "vp(Pa)",
+)
+
+DAYMET_METEOROLOGICAL_COLUMNS = (
+    "dayl(s)",
+    "prcp(mm/day)",
+    "srad(W/m2)",
+    "swe(mm)",
+    "tmax(C)",
+    "tmin(C)",
+    "vp(Pa)",
+)
+
+
+def validate_forcing_schema(df: pd.DataFrame) -> None:
+    """
+    Validates structural schema integrity of raw CAMELS-US Daymet meteorological forcing.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame parsed from a CAMELS-US Daymet forcing file.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, timestamps are invalid/non-monotonic/duplicate,
+        or meteorological columns are non-numeric or contain NaN/Inf.
+    """
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError(
+            f"Expected pandas DataFrame for forcing schema validation, got {type(df)}."
+        )
+
+    missing_cols = set(DAYMET_RAW_FORCING_COLUMNS) - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Missing required columns in CAMELS-US Daymet forcing: {sorted(missing_cols)}"
+        )
+
+    # Validate raw calendar date columns
+    for date_col in ("Year", "Mnth", "Day", "Hr"):
+        if not pd.api.types.is_numeric_dtype(df[date_col]):
+            raise ValueError(f"Forcing date column '{date_col}' contains non-numeric data.")
+        if df[date_col].isna().any():
+            nan_count = int(df[date_col].isna().sum())
+            raise ValueError(f"Forcing date column '{date_col}' contains {nan_count} NaN values.")
+
+    # Validate that Year, Mnth, Day construct valid calendar dates
+    try:
+        parsed_dates = pd.to_datetime(
+            {
+                "year": df["Year"],
+                "month": df["Mnth"],
+                "day": df["Day"],
+            },
+            errors="raise",
+        )
+    except Exception as e:
+        raise ValueError(f"Invalid calendar dates in forcing data: {e}") from e
+
+    # Validate that raw calendar dates are monotonically increasing and unique
+    if not parsed_dates.is_monotonic_increasing:
+        raise ValueError("Calendar dates in forcing data are not monotonically increasing.")
+    if parsed_dates.duplicated().any():
+        dups = parsed_dates[parsed_dates.duplicated()].tolist()
+        raise ValueError(f"Duplicate calendar dates found in forcing data: {dups[:5]}")
+
+    # Validate that meteorological variables are numeric and complete
+    for col in DAYMET_METEOROLOGICAL_COLUMNS:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            raise ValueError(f"Forcing column '{col}' contains non-numeric data.")
+        if df[col].isna().any():
+            nan_count = int(df[col].isna().sum())
+            raise ValueError(f"Forcing column '{col}' contains {nan_count} NaN values.")
+        if np.isinf(df[col]).any():
+            inf_count = int(np.isinf(df[col]).sum())
+            raise ValueError(f"Forcing column '{col}' contains {inf_count} infinite values.")
+
+    # Validate DatetimeIndex if present
+    if isinstance(df.index, pd.DatetimeIndex):
+        if not df.index.is_monotonic_increasing:
+            raise ValueError("Timestamps in forcing index are not monotonically increasing.")
+        if df.index.duplicated().any():
+            duplicates = df.index[df.index.duplicated()].tolist()
+            raise ValueError(f"Duplicate timestamps found in forcing index: {duplicates[:5]}")
 
 
 class CamelsDatasetLoader:
@@ -149,7 +248,8 @@ class CamelsDatasetLoader:
         Returns
         -------
         pd.DataFrame
-            DataFrame indexed by DatetimeIndex ('date') containing unmodified numeric forcing values.
+            DataFrame indexed by DatetimeIndex ('date') containing unmodified raw forcing columns:
+            ['Year', 'Mnth', 'Day', 'Hr', 'dayl(s)', 'prcp(mm/day)', 'srad(W/m2)', 'swe(mm)', 'tmax(C)', 'tmin(C)', 'vp(Pa)'].
         """
         valid_basin = self._validate_basin(basin_id)
         forcing_dir = self.data_dir / "basin_mean_forcing" / forcing_type
@@ -164,7 +264,7 @@ class CamelsDatasetLoader:
                 header=0,
                 dtype={
                     "Year": int,
-                    "Mn": int,
+                    "Mnth": int,
                     "Day": int,
                     "Hr": int,
                 },
@@ -172,28 +272,18 @@ class CamelsDatasetLoader:
         except Exception as e:
             raise ValueError(f"Failed to parse forcing file {forcing_file.resolve()}: {e}") from e
 
-        required_cols = {
-            "Year",
-            "Mn",
-            "Day",
-            "prcp(mm/day)",
-            "tmin(C)",
-            "tmax(C)",
-            "srad(W/m2)",
-            "vp(Pa)",
-        }
-        missing_cols = required_cols - set(df.columns)
-        if missing_cols:
+        # Parse and structurally validate calendar timestamps
+        if "Year" not in df.columns or "Mnth" not in df.columns or "Day" not in df.columns:
+            missing_date_cols = {"Year", "Mnth", "Day"} - set(df.columns)
             raise ValueError(
-                f"Missing required columns in forcing file {forcing_file.resolve()}: {sorted(missing_cols)}"
+                f"Missing required date columns in forcing file {forcing_file.resolve()}: {sorted(missing_date_cols)}"
             )
 
-        # Parse and structurally validate timestamps
         try:
             dates = pd.to_datetime(
                 {
                     "year": df["Year"],
-                    "month": df["Mn"],
+                    "month": df["Mnth"],
                     "day": df["Day"],
                 }
             )
@@ -202,18 +292,11 @@ class CamelsDatasetLoader:
                 f"Invalid dates encountered in forcing file {forcing_file.resolve()}: {e}"
             ) from e
 
-        if not dates.is_monotonic_increasing:
-            raise ValueError(
-                f"Timestamps in forcing file {forcing_file.resolve()} are not monotonically increasing."
-            )
-
-        if dates.duplicated().any():
-            duplicates = dates[dates.duplicated()].tolist()
-            raise ValueError(
-                f"Duplicate timestamps found in forcing file {forcing_file.resolve()}: {duplicates[:5]}"
-            )
-
         df.index = pd.DatetimeIndex(dates, name="date")
+
+        # Execute structural schema validation
+        validate_forcing_schema(df)
+
         return df
 
     def load_streamflow(

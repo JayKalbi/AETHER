@@ -4,11 +4,16 @@ Unit tests for CAMELS-US raw dataset loader (Issue R1.2).
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from aether.data.basin_registry import BenchmarkRegistry
-from aether.data.camels_loader import CamelsDatasetLoader
+from aether.data.camels_loader import (
+    DAYMET_RAW_FORCING_COLUMNS,
+    CamelsDatasetLoader,
+    validate_forcing_schema,
+)
 
 
 @pytest.fixture
@@ -27,7 +32,7 @@ def mock_camels_dir(tmp_path: Path) -> Path:
         "44.60744 -67.93524\n"
         "84.0\n"
         "619500000.0\n"
-        "Year Mn Day Hr dayl(s) prcp(mm/day) srad(W/m2) swe(mm) tmax(C) tmin(C) vp(Pa)\n"
+        "Year Mnth Day Hr dayl(s) prcp(mm/day) srad(W/m2) swe(mm) tmax(C) tmin(C) vp(Pa)\n"
         "1995 10 01 12 42300 0.00 245.50 0.00 18.50 6.20 850.00\n"
         "1995 10 02 12 42100 12.40 180.20 0.00 14.10 8.00 920.50\n"
         "1995 10 03 12 41900 5.10 210.00 0.00 16.00 5.50 780.00\n"
@@ -122,7 +127,7 @@ class TestCamelsDatasetLoader:
         bad_file = huc01_forcing / "01031500_lump_cida_forcing_leap.txt"
         bad_content = (
             "lat lon\nelev\narea\n"
-            "Year Mn Day Hr dayl(s) prcp(mm/day) srad(W/m2) swe(mm) tmax(C) tmin(C) vp(Pa)\n"
+            "Year Mnth Day Hr dayl(s) prcp(mm/day) srad(W/m2) swe(mm) tmax(C) tmin(C) vp(Pa)\n"
             "1995 10 02 12 42100 12.40 180.20 0.00 14.10 8.00 920.50\n"
             "1995 10 01 12 42300 0.00 245.50 0.00 18.50 6.20 850.00\n"
         )
@@ -212,3 +217,156 @@ class TestCamelsDatasetLoader:
         nonexistent_loader = CamelsDatasetLoader(data_dir=mock_camels_dir / "missing_root")
         with pytest.raises(FileNotFoundError, match="Required CAMELS directory not found"):
             nonexistent_loader.load_forcing("01022500")
+
+
+class TestValidateForcingSchema:
+    """Test suite for R1.3 CAMELS-US Daymet schema validation contract."""
+
+    @pytest.fixture
+    def valid_forcing_df(self) -> pd.DataFrame:
+        """Returns a minimal valid DataFrame complying with the canonical Daymet schema."""
+        dates = pd.date_range("1995-10-01", periods=3, freq="D")
+        return pd.DataFrame(
+            {
+                "Year": [1995, 1995, 1995],
+                "Mnth": [10, 10, 10],
+                "Day": [1, 2, 3],
+                "Hr": [12, 12, 12],
+                "dayl(s)": [42300.0, 42100.0, 41900.0],
+                "prcp(mm/day)": [0.0, 12.4, 5.1],
+                "srad(W/m2)": [245.5, 180.2, 210.0],
+                "swe(mm)": [0.0, 0.0, 0.0],
+                "tmax(C)": [18.5, 14.1, 16.0],
+                "tmin(C)": [6.2, 8.0, 5.5],
+                "vp(Pa)": [850.0, 920.5, 780.0],
+            },
+            index=pd.DatetimeIndex(dates, name="date"),
+        )
+
+    def test_canonical_schema_passes_validation(self, valid_forcing_df: pd.DataFrame):
+        """Verifies a fully conforming DataFrame passes validation without error."""
+        validate_forcing_schema(valid_forcing_df)
+
+    def test_missing_required_column_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies missing any required column (including raw date columns) raises ValueError."""
+        for col in DAYMET_RAW_FORCING_COLUMNS:
+            df_missing = valid_forcing_df.drop(columns=[col])
+            with pytest.raises(ValueError, match="Missing required columns"):
+                validate_forcing_schema(df_missing)
+
+    def test_mn_instead_of_canonical_mnth_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies the non-canonical column 'Mn' is strictly rejected without silent fallback."""
+        df_old_mn = valid_forcing_df.rename(columns={"Mnth": "Mn"})
+        with pytest.raises(ValueError, match="Missing required columns.*Mnth"):
+            validate_forcing_schema(df_old_mn)
+
+    def test_non_numeric_meteorological_column_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies strings/non-numeric values in meteorological columns trigger ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad["prcp(mm/day)"] = ["0.0", "corrupt_str", "5.1"]
+        with pytest.raises(ValueError, match="contains non-numeric data"):
+            validate_forcing_schema(df_bad)
+
+    def test_nan_in_meteorological_column_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies NaNs in meteorological columns trigger explicit ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad.loc[df_bad.index[1], "tmax(C)"] = np.nan
+        with pytest.raises(ValueError, match="contains 1 NaN values"):
+            validate_forcing_schema(df_bad)
+
+    def test_inf_in_meteorological_column_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies infinite values in meteorological columns trigger explicit ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad.loc[df_bad.index[0], "srad(W/m2)"] = np.inf
+        with pytest.raises(ValueError, match="contains 1 infinite values"):
+            validate_forcing_schema(df_bad)
+
+    def test_invalid_calendar_date_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies unparseable or impossible calendar dates (e.g. Feb 30) trigger ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad["Mnth"] = [2, 2, 2]
+        df_bad["Day"] = [28, 29, 30]  # Feb 30, 1995 is invalid
+        with pytest.raises(ValueError, match="Invalid calendar dates"):
+            validate_forcing_schema(df_bad)
+
+    def test_duplicate_dates_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies duplicate calendar dates trigger explicit ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad["Day"] = [1, 1, 3]  # Duplicate Oct 1, 1995
+        with pytest.raises(ValueError, match="Duplicate calendar dates found"):
+            validate_forcing_schema(df_bad)
+
+    def test_non_monotonic_calendar_dates_rejected(self, valid_forcing_df: pd.DataFrame):
+        """Verifies non-chronological raw date ordering triggers explicit ValueError."""
+        df_bad = valid_forcing_df.copy()
+        df_bad["Day"] = [2, 1, 3]
+        with pytest.raises(
+            ValueError, match="Calendar dates in forcing data are not monotonically increasing"
+        ):
+            validate_forcing_schema(df_bad)
+
+    def test_raw_columns_preserved_by_loader(self, mock_camels_dir: Path):
+        """Verifies load_forcing preserves Year, Mnth, Day, Hr alongside DatetimeIndex."""
+        loader = CamelsDatasetLoader(data_dir=mock_camels_dir)
+        df = loader.load_forcing("01022500")
+
+        # DatetimeIndex is present
+        assert isinstance(df.index, pd.DatetimeIndex)
+        assert df.index.name == "date"
+
+        # Raw date columns MUST be retained
+        for col in ("Year", "Mnth", "Day", "Hr"):
+            assert col in df.columns
+            assert pd.api.types.is_integer_dtype(df[col])
+
+        # Exact raw values preserved
+        assert list(df["Year"]) == [1995, 1995, 1995]
+        assert list(df["Mnth"]) == [10, 10, 10]
+        assert list(df["Day"]) == [1, 2, 3]
+        assert list(df["Hr"]) == [12, 12, 12]
+
+    def test_scientific_boundary_no_physical_qc_in_r1_3(self, valid_forcing_df: pd.DataFrame):
+        """
+        CRITICAL SCIENTIFIC INVARIANT:
+        R1.3 does NOT implement physical QC.
+        Unphysical values (negative prcp, negative radiation, negative swe,
+        negative vp, dayl outside range, Tmin > Tmax) must NOT be rejected
+        or altered at the R1.3 schema level (deferred strictly to R1.5).
+        """
+        df_unphysical = valid_forcing_df.copy()
+        df_unphysical.loc[df_unphysical.index[0], "prcp(mm/day)"] = -5.0
+        df_unphysical.loc[df_unphysical.index[0], "srad(W/m2)"] = -10.0
+        df_unphysical.loc[df_unphysical.index[0], "swe(mm)"] = -1.0
+        df_unphysical.loc[df_unphysical.index[0], "vp(Pa)"] = -50.0
+        df_unphysical.loc[df_unphysical.index[0], "dayl(s)"] = 999999.0
+        # Tmin > Tmax
+        df_unphysical.loc[df_unphysical.index[0], "tmin(C)"] = 25.0
+        df_unphysical.loc[df_unphysical.index[0], "tmax(C)"] = 10.0
+
+        # Must pass schema validation cleanly without error or clipping
+        validate_forcing_schema(df_unphysical)
+        assert df_unphysical.loc[df_unphysical.index[0], "prcp(mm/day)"] == -5.0
+        assert df_unphysical.loc[df_unphysical.index[0], "tmin(C)"] == 25.0
+        assert df_unphysical.loc[df_unphysical.index[0], "tmax(C)"] == 10.0
+
+    def test_real_camels_dataset_smoke_test(self):
+        """
+        Smoke test against the actual CAMELS-US v1.2 dataset on disk, if present.
+        Skipped automatically when running in environments (e.g. CI) without local data.
+        """
+        real_data_dir = Path("D:/CAMELS_US/basin_dataset_public_v1p2")
+        if not real_data_dir.exists():
+            pytest.skip(
+                "Real CAMELS-US dataset not found at D:/CAMELS_US/basin_dataset_public_v1p2"
+            )
+
+        loader = CamelsDatasetLoader(data_dir=real_data_dir)
+        df = loader.load_forcing("01022500")
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 12784  # Exactly 1980-01-01 to 2014-12-31 (leap years included)
+        assert df.index[0] == pd.Timestamp("1980-01-01")
+        assert df.index[-1] == pd.Timestamp("2014-12-31")
+
+        for col in DAYMET_RAW_FORCING_COLUMNS:
+            assert col in df.columns

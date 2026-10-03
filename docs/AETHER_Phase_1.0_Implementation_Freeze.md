@@ -216,12 +216,15 @@ data/camels_us/
 | **Static Attribute** | `geol_porosity` | $\phi_{\text{geol}}$ | $-$ | `camels_geol.txt` | Subsurface porosity |
 
 ### Quality Control & Missing Data Protocols
-1. **Streamflow Missing Flag:** USGS flag `Q_FLAG == 'M'` or $Q < 0$ denotes missing observations. Missing values are masked out from loss functions and evaluation metrics.
+1. **Streamflow Missing Flag:** USGS flag `Q_FLAG == 'M'` or $Q < 0$ or non-finite discharge value denotes missing observations. Missing values are masked out from loss functions and evaluation metrics.
 2. **Missing Rate Filter:** Any basin with $> 5.0\%$ missing streamflow records across the training or test period is excluded.
-3. **Area Consistency:** Basin area recorded in `camels_topo.txt` must match `gauge_information.txt` within $1.0\%$.
+   * **Missingness Denominator:** The denominator is strictly the total expected calendar days in the explicitly supplied `[start_date, end_date]` interval, accounting for all leap days and penalizing unobserved calendar gap days.
+   * **CAMELS-US v1.2 Test Evaluation Window:** For quality control filtering on the local CAMELS-US v1.2 distribution, the test missingness evaluation window is `2010-10-01` through `2014-12-31` (1,553 expected calendar days), corresponding to the termination date of the local CAMELS-US v1.2 Daymet and USGS records used by AETHER.
+3. **Area Consistency:** Basin area `area_gages2` recorded in `camels_topo.txt` must match Geospatial Fabric drainage area `Size(km2)` recorded in `basin_metadata/basin_physical_characteristics.txt` within $1.0\%$:
+   $$\frac{|\text{area\_gages2} - \text{Size(km2)}|}{\text{area\_gages2}} \le 0.01$$
 
 > [!IMPORTANT]
-> **VERIFY BEFORE IMPLEMENTATION [VBI-01]:** Confirm local Daymet file headers in `basin_mean_forcing/daymet/` match the expected columns (`Year`, `Mn`, `Day`, `Hr`, `dayl(s)`, `prcp(mm/day)`, `srad(W/m2)`, `swe(mm)`, `tmax(C)`, `tmin(C)`, `vp(Pa)`).
+> **VERIFY BEFORE IMPLEMENTATION [VBI-01]:** Confirm local Daymet file headers in `basin_mean_forcing/daymet/` match the expected columns (`Year`, `Mnth`, `Day`, `Hr`, `dayl(s)`, `prcp(mm/day)`, `srad(W/m2)`, `swe(mm)`, `tmax(C)`, `tmin(C)`, `vp(Pa)`).
 
 ---
 

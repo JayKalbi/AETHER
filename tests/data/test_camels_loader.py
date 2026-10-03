@@ -10,8 +10,14 @@ import pytest
 
 from aether.data.basin_registry import BenchmarkRegistry
 from aether.data.camels_loader import (
+    CFS_TO_M3S,
     DAYMET_RAW_FORCING_COLUMNS,
+    DISCHARGE_CFS_TO_MM_DAY_SCALE,
+    M2_PER_KM2,
+    MM_PER_METER,
+    SECONDS_PER_DAY,
     CamelsDatasetLoader,
+    convert_discharge_cfs_to_mm_day,
     validate_forcing_schema,
 )
 
@@ -370,3 +376,185 @@ class TestValidateForcingSchema:
 
         for col in DAYMET_RAW_FORCING_COLUMNS:
             assert col in df.columns
+
+
+class TestDischargeConversion:
+    """Test suite for R1.4 discharge unit and area conversion contract."""
+
+    def test_exact_mathematical_conversion(self):
+        """
+        Verifies exact physical conversion equation:
+        Q = 1000 cfs, area = 1000 km^2 -> expected 2.4465755455488 mm/day.
+        """
+        cfs = 1000.0
+        area = 1000.0
+        expected = 2.4465755455488
+        result = convert_discharge_cfs_to_mm_day(cfs, area)
+        assert result == pytest.approx(expected, rel=1e-12)
+
+    def test_constants_and_scale_factor_derivation(self):
+        """Verifies physical constants match frozen specifications and exact derivation."""
+        assert CFS_TO_M3S == pytest.approx(0.028316846592, rel=1e-12)
+        assert SECONDS_PER_DAY == 86400
+        assert MM_PER_METER == 1000.0
+        assert M2_PER_KM2 == 1_000_000.0
+
+        derived_scale = (CFS_TO_M3S * SECONDS_PER_DAY * MM_PER_METER) / M2_PER_KM2
+        assert derived_scale == pytest.approx(2.4465755455488, rel=1e-12)
+        assert DISCHARGE_CFS_TO_MM_DAY_SCALE == pytest.approx(derived_scale, rel=1e-12)
+
+    def test_zero_discharge_converts_to_zero(self):
+        """Verifies 0 cfs converts strictly to 0 mm/day."""
+        result = convert_discharge_cfs_to_mm_day(0.0, 500.0)
+        assert result == 0.0
+
+    def test_negative_discharge_linear_preservation(self):
+        """
+        CRITICAL SCIENTIFIC INVARIANT:
+        Negative discharge is converted linearly and NOT clipped to zero (R1.4 != QC).
+        """
+        val = -50.0
+        area = 200.0
+        expected = -50.0 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 200.0
+        result = convert_discharge_cfs_to_mm_day(val, area)
+        assert result < 0.0
+        assert result == pytest.approx(expected, rel=1e-12)
+
+    def test_missing_sentinel_negative_999_converted_linearly(self):
+        """
+        CRITICAL SCIENTIFIC INVARIANT:
+        The CAMELS -999.00 missing sentinel is NOT mapped to NaN, zero, or preserved unchanged.
+        R1.4 is pure unit conversion; sentinel interpretation belongs strictly to R1.5.
+        """
+        val = -999.00
+        area = 619.5
+        expected = -999.00 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 619.5
+        result = convert_discharge_cfs_to_mm_day(val, area)
+        assert result != -999.00
+        assert not np.isnan(result)
+        assert result == pytest.approx(expected, rel=1e-12)
+
+    @pytest.mark.parametrize("bad_area", [0.0, -100.0, -0.001, np.nan, np.inf, -np.inf])
+    def test_invalid_area_rejected(self, bad_area: float):
+        """Verifies area <= 0, NaN, and Inf raise clear descriptive ValueError."""
+        with pytest.raises(ValueError, match="strictly positive.*finite"):
+            convert_discharge_cfs_to_mm_day(100.0, bad_area)
+
+    def test_scalar_types_supported(self):
+        """Verifies int and float scalar types are supported."""
+        res_int = convert_discharge_cfs_to_mm_day(100, 200.0)
+        res_float = convert_discharge_cfs_to_mm_day(100.0, 200.0)
+        assert isinstance(res_int, float)
+        assert isinstance(res_float, float)
+        assert res_int == pytest.approx(res_float, rel=1e-12)
+
+    def test_pandas_series_input_and_index_preservation(self):
+        """Verifies pandas Series conversion preserves index and returns Series."""
+        dates = pd.date_range("1995-10-01", periods=3, freq="D")
+        s = pd.Series([100.0, 250.0, -999.0], index=dates, name="streamflow_cfs")
+
+        area = 500.0
+        res = convert_discharge_cfs_to_mm_day(s, area)
+
+        assert isinstance(res, pd.Series)
+        assert list(res.index) == list(dates)
+        assert res.iloc[0] == pytest.approx(100.0 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 500.0)
+        assert res.iloc[1] == pytest.approx(250.0 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 500.0)
+        assert res.iloc[2] == pytest.approx(-999.0 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 500.0)
+
+    def test_numpy_ndarray_input(self):
+        """Verifies numpy ndarray conversion preserves container type and shape."""
+        arr = np.array([0.0, 50.0, 100.0, -999.0])
+        area = 100.0
+        res = convert_discharge_cfs_to_mm_day(arr, area)
+
+        assert isinstance(res, np.ndarray)
+        assert res.shape == (4,)
+        expected = arr * DISCHARGE_CFS_TO_MM_DAY_SCALE / 100.0
+        np.testing.assert_allclose(res, expected)
+
+    def test_sequence_list_tuple_input(self):
+        """Verifies list and tuple sequence inputs are supported."""
+        data_list = [10.0, 20.0, 30.0]
+        res = convert_discharge_cfs_to_mm_day(data_list, 100.0)
+        assert isinstance(res, np.ndarray)
+        assert len(res) == 3
+
+    def test_non_numeric_discharge_rejected(self):
+        """Verifies non-numeric values in Series, arrays, or sequences raise ValueError."""
+        s_bad = pd.Series(["corrupt", "data", "100.0"])
+        with pytest.raises(ValueError, match="non-numeric"):
+            convert_discharge_cfs_to_mm_day(s_bad, 100.0)
+
+        with pytest.raises(ValueError, match="non-numeric"):
+            convert_discharge_cfs_to_mm_day(np.array(["a", "b"]), 100.0)
+
+        with pytest.raises(ValueError, match="non-numeric"):
+            convert_discharge_cfs_to_mm_day(["a", "b"], 100.0)
+
+    def test_raw_streamflow_preservation(self, mock_camels_dir: Path):
+        """
+        Verifies load_streamflow contract is unchanged and raw values
+        (streamflow_cfs, qc_flag) are preserved without mutation.
+        """
+        loader = CamelsDatasetLoader(data_dir=mock_camels_dir)
+        df = loader.load_streamflow("01022500")
+
+        # Must strictly preserve raw columns
+        assert list(df.columns) == ["basin_id", "streamflow_cfs", "qc_flag"]
+        assert "streamflow_mm_day" not in df.columns  # Loader must remain pure raw loader
+
+        # Raw values match mock fixture exactly
+        assert df.loc[pd.Timestamp("1995-10-01"), "streamflow_cfs"] == 125.50
+        assert df.loc[pd.Timestamp("1995-10-02"), "streamflow_cfs"] == -999.00
+        assert df.loc[pd.Timestamp("1995-10-02"), "qc_flag"] == "M"
+
+        # Applying standalone conversion on the series preserves the original DataFrame
+        area_authoritative = 619.5
+        converted_series = convert_discharge_cfs_to_mm_day(df["streamflow_cfs"], area_authoritative)
+
+        assert isinstance(converted_series, pd.Series)
+        # Original df column is completely unchanged
+        assert df.loc[pd.Timestamp("1995-10-01"), "streamflow_cfs"] == 125.50
+        assert df.loc[pd.Timestamp("1995-10-02"), "streamflow_cfs"] == -999.00
+        assert df.loc[pd.Timestamp("1995-10-02"), "qc_flag"] == "M"
+
+    def test_real_camels_streamflow_conversion_smoke_test(self):
+        """
+        Optional smoke test against real CAMELS-US dataset on disk (if present).
+        Validates basin 01022500 streamflow loading, authoritative area_gages2 (619.5 km^2),
+        and numeric stability. Skipped automatically in CI.
+        """
+        real_data_dir = Path("D:/CAMELS_US/basin_dataset_public_v1p2")
+        if not real_data_dir.exists():
+            pytest.skip(
+                "Real CAMELS-US dataset not found at D:/CAMELS_US/basin_dataset_public_v1p2"
+            )
+
+        loader = CamelsDatasetLoader(data_dir=real_data_dir)
+        df_flow = loader.load_streamflow("01022500")
+
+        assert len(df_flow) == 12784
+        assert df_flow.index[0] == pd.Timestamp("1980-01-01")
+        assert df_flow.index[-1] == pd.Timestamp("2014-12-31")
+
+        # Authoritative GAGES-II catchment area for basin 01022500 is 619.5 km^2
+        authoritative_area_km2 = 619.5
+        flow_mm_day = convert_discharge_cfs_to_mm_day(
+            df_flow["streamflow_cfs"], authoritative_area_km2
+        )
+
+        assert isinstance(flow_mm_day, pd.Series)
+        assert len(flow_mm_day) == 12784
+        # Positive flow on 1980-01-01 was 395.00 cfs
+        assert flow_mm_day.iloc[0] == pytest.approx(
+            395.00 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 619.5, rel=1e-12
+        )
+        # Missing flow on 2014-10-01 was -999.00 cfs
+        assert flow_mm_day.loc[pd.Timestamp("2014-10-01")] == pytest.approx(
+            -999.00 * DISCHARGE_CFS_TO_MM_DAY_SCALE / 619.5, rel=1e-12
+        )
+        # Raw df_flow values remained completely untouched
+        assert df_flow.loc[pd.Timestamp("1980-01-01"), "streamflow_cfs"] == 395.00
+        assert df_flow.loc[pd.Timestamp("2014-10-01"), "streamflow_cfs"] == -999.00
+        assert df_flow.loc[pd.Timestamp("2014-10-01"), "qc_flag"] == "M"

@@ -114,6 +114,98 @@ def validate_forcing_schema(df: pd.DataFrame) -> None:
             raise ValueError(f"Duplicate timestamps found in forcing index: {duplicates[:5]}")
 
 
+# Conversion constants for volumetric streamflow discharge (cfs) to depth of runoff (mm/day)
+CFS_TO_M3S: float = 0.028316846592  # Exact international foot definition: (0.3048 m)^3
+SECONDS_PER_DAY: int = 86400
+MM_PER_METER: float = 1000.0
+M2_PER_KM2: float = 1_000_000.0
+
+# Derived scale factor: (CFS_TO_M3S * SECONDS_PER_DAY * MM_PER_METER) / M2_PER_KM2 = 2.4465755455488
+DISCHARGE_CFS_TO_MM_DAY_SCALE: float = CFS_TO_M3S * SECONDS_PER_DAY * MM_PER_METER / M2_PER_KM2
+
+
+def convert_discharge_cfs_to_mm_day(
+    discharge_cfs: Union[float, int, Sequence[float], pd.Series, np.ndarray],
+    area_km2: float,
+) -> Union[float, pd.Series, np.ndarray]:
+    """
+    Converts volumetric streamflow discharge from cubic feet per second (cfs)
+    to depth of runoff per day (mm/day) normalized by catchment area.
+
+    Dimensional derivation:
+        Q (mm/day) = Q (cfs) * CFS_TO_M3S (m3/s / cfs) * SECONDS_PER_DAY (s/day)
+                     * MM_PER_METER (mm/m) / (area_km2 * M2_PER_KM2 (m2/km2))
+                   = Q (cfs) * 2.4465755455488 / area_km2
+
+    Scientific Scope & Invariants:
+        - Pure, deterministic mathematical transformation.
+        - NO quality control (QC) semantics or missing-data interpretation.
+        - The CAMELS-US missing sentinel value (-999.00) is converted mathematically
+          like any other numeric input; it is NOT mapped to NaN, clipped, or discarded.
+        - Negative values are converted linearly without clipping.
+        - Zero discharge converts strictly to zero.
+        - The caller is responsible for providing the authoritative catchment area
+          (in CAMELS-US/AETHER: `area_gages2` in km2 from `camels_topo.txt`).
+
+    Parameters
+    ----------
+    discharge_cfs : Union[float, int, Sequence[float], pd.Series, np.ndarray]
+        Volumetric streamflow discharge in cubic feet per second (cfs).
+    area_km2 : float
+        Catchment drainage area in square kilometers. Must be strictly positive and finite.
+
+    Returns
+    -------
+    Union[float, pd.Series, np.ndarray]
+        Discharge in millimeters per day (mm/day), preserving pandas Series index
+        or numpy ndarray container types.
+
+    Raises
+    ------
+    ValueError
+        If area_km2 is <= 0, non-finite (NaN or Inf), or if discharge cannot be parsed as numeric.
+    """
+    # Validate area_km2
+    if not isinstance(area_km2, (int, float, np.number)):
+        raise ValueError(f"Catchment drainage area must be a numeric value, got {type(area_km2)}.")
+
+    if np.isnan(area_km2) or np.isinf(area_km2) or area_km2 <= 0.0:
+        raise ValueError(
+            f"Catchment drainage area must be strictly positive (> 0) and finite, got {area_km2}."
+        )
+
+    scale = DISCHARGE_CFS_TO_MM_DAY_SCALE / float(area_km2)
+
+    if isinstance(discharge_cfs, pd.Series):
+        if not pd.api.types.is_numeric_dtype(discharge_cfs):
+            raise ValueError("Input pandas Series contains non-numeric discharge data.")
+        return discharge_cfs * scale
+
+    if isinstance(discharge_cfs, np.ndarray):
+        if not np.issubdtype(discharge_cfs.dtype, np.number):
+            raise ValueError("Input numpy ndarray contains non-numeric discharge data.")
+        return discharge_cfs * scale
+
+    if isinstance(discharge_cfs, (int, float, np.number)):
+        val = float(discharge_cfs)
+        if np.isnan(val) or np.isinf(val):
+            # Allow NaN/Inf floats through mathematically or handle cleanly
+            return val * scale
+        return val * scale
+
+    if isinstance(discharge_cfs, (list, tuple)):
+        try:
+            arr = np.asarray(discharge_cfs, dtype=float)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Input sequence contains non-numeric discharge data: {e}") from e
+        return arr * scale
+
+    raise ValueError(
+        f"Unsupported input type for discharge_cfs: {type(discharge_cfs)}. "
+        "Expected float, int, list, tuple, np.ndarray, or pd.Series."
+    )
+
+
 class CamelsDatasetLoader:
     """
     Deterministic, offline raw data loader for CAMELS-US v1.2.

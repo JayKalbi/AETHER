@@ -19,6 +19,12 @@ from aether.data.camels_loader import (
     convert_discharge_cfs_to_mm_day,
     validate_forcing_schema,
 )
+from aether.data.qc import (
+    StreamflowQCSummary,
+    calculate_streamflow_missingness,
+    identify_missing_streamflow,
+    validate_basin_area_consistency,
+)
 
 __all__ = [
     "BenchmarkRegistry",
@@ -34,4 +40,8 @@ __all__ = [
     "MM_PER_METER",
     "M2_PER_KM2",
     "DISCHARGE_CFS_TO_MM_DAY_SCALE",
+    "StreamflowQCSummary",
+    "identify_missing_streamflow",
+    "calculate_streamflow_missingness",
+    "validate_basin_area_consistency",
 ]

@@ -10,6 +10,8 @@ import pytest
 
 from aether.configs.base_config import TemporalSplitConfig
 from aether.data.split_manager import (
+    DEFAULT_LOOKBACK_DAYS,
+    BufferedSplitWindow,
     SplitWindow,
     TemporalSplitManager,
     _parse_and_validate_timestamp,
@@ -341,3 +343,207 @@ class TestRealCamelsUSIntegrationCoverage:
 
         # Verify that after validating coverage, TEST split remains unclipped
         assert mgr.get_split(TemporalSplit.TEST).end_date == pd.Timestamp("2018-09-30")
+
+
+class TestBufferedSplitWindow:
+    """Unit tests for R1.7 366-day historical context lookback buffer enforcement."""
+
+    @pytest.fixture
+    def manager(self) -> TemporalSplitManager:
+        return TemporalSplitManager()
+
+    def test_buffered_split_window_construction_and_immutability(
+        self, manager: TemporalSplitManager
+    ):
+        """1, 2. Verifies BufferedSplitWindow construction and immutable frozen dataclass behavior."""
+        train_win = manager.get_split(TemporalSplit.TRAIN)
+        buffered = BufferedSplitWindow(target_window=train_win, lookback_days=366)
+
+        assert buffered.name == TemporalSplit.TRAIN
+        assert buffered.target_window == train_win
+        assert buffered.lookback_days == 366
+        assert buffered.target_start_date == pd.Timestamp("1980-10-01")
+        assert buffered.target_end_date == pd.Timestamp("2000-09-30")
+        assert buffered.buffered_start_date == pd.Timestamp("1979-10-01")
+        assert buffered.buffer_end_date == pd.Timestamp("1980-09-30")
+
+        # Frozen dataclass mutation raises error
+        with pytest.raises(Exception):
+            buffered.lookback_days = 365  # type: ignore
+
+    def test_default_lookback_days_constant(self):
+        """Verifies DEFAULT_LOOKBACK_DAYS constant equals 366."""
+        assert DEFAULT_LOOKBACK_DAYS == 366
+
+    def test_exact_366_day_lookback_all_splits(self, manager: TemporalSplitManager):
+        """3, 4, 5, 6, 7. Verifies exact buffer dates, day counts, and target invariance across all 4 splits."""
+        # 1. TRAIN: Target 1980-10-01 to 2000-09-30. Buffer: 1979-10-01 to 1980-09-30 (366 days, 1980 leap day)
+        train_buf = manager.get_buffered_split(TemporalSplit.TRAIN)
+        assert train_buf.buffered_start_date == pd.Timestamp("1979-10-01")
+        assert train_buf.buffer_end_date == pd.Timestamp("1980-09-30")
+        assert train_buf.buffer_days == 366
+        assert train_buf.target_start_date == pd.Timestamp("1980-10-01")
+        assert train_buf.target_end_date == pd.Timestamp("2000-09-30")
+        assert train_buf.total_buffered_days == 366 + 7305  # 7671 days
+
+        # 2. VAL: Target 2000-10-01 to 2005-09-30. Buffer: 1999-10-01 to 2000-09-30 (366 days, 2000 leap day)
+        val_buf = manager.get_buffered_split(TemporalSplit.VAL)
+        assert val_buf.buffered_start_date == pd.Timestamp("1999-10-01")
+        assert val_buf.buffer_end_date == pd.Timestamp("2000-09-30")
+        assert val_buf.buffer_days == 366
+        assert val_buf.target_start_date == pd.Timestamp("2000-10-01")
+        assert val_buf.target_end_date == pd.Timestamp("2005-09-30")
+        assert val_buf.total_buffered_days == 366 + 1826  # 2192 days
+
+        # 3. CAL: Target 2005-10-01 to 2010-09-30. Buffer: 2004-09-30 to 2005-09-30 (366 days, non-leap)
+        cal_buf = manager.get_buffered_split(TemporalSplit.CAL)
+        assert cal_buf.buffered_start_date == pd.Timestamp("2004-09-30")
+        assert cal_buf.buffer_end_date == pd.Timestamp("2005-09-30")
+        assert cal_buf.buffer_days == 366
+        assert cal_buf.target_start_date == pd.Timestamp("2005-10-01")
+        assert cal_buf.target_end_date == pd.Timestamp("2010-09-30")
+        assert cal_buf.total_buffered_days == 366 + 1826  # 2192 days
+
+        # 4. TEST: Target 2010-10-01 to 2018-09-30. Buffer: 2009-09-30 to 2010-09-30 (366 days, non-leap)
+        test_buf = manager.get_buffered_split(TemporalSplit.TEST)
+        assert test_buf.buffered_start_date == pd.Timestamp("2009-09-30")
+        assert test_buf.buffer_end_date == pd.Timestamp("2010-09-30")
+        assert test_buf.buffer_days == 366
+        assert test_buf.target_start_date == pd.Timestamp("2010-10-01")
+        assert test_buf.target_end_date == pd.Timestamp("2018-09-30")
+        assert test_buf.total_buffered_days == 366 + 2922  # 3288 days
+
+    def test_buffer_date_range_generators(self, manager: TemporalSplitManager):
+        """Verifies get_buffer_date_range() and get_total_date_range()."""
+        cal_buf = manager.get_buffered_split(TemporalSplit.CAL)
+        buf_dr = cal_buf.get_buffer_date_range()
+        assert len(buf_dr) == 366
+        assert buf_dr[0] == pd.Timestamp("2004-09-30")
+        assert buf_dr[-1] == pd.Timestamp("2005-09-30")
+
+        total_dr = cal_buf.get_total_date_range()
+        assert len(total_dr) == 2192
+        assert total_dr[0] == pd.Timestamp("2004-09-30")
+        assert total_dr[-1] == pd.Timestamp("2010-09-30")
+
+    def test_invalid_lookback_days_rejected(self, manager: TemporalSplitManager):
+        """10. Non-positive or non-integer lookback_days are rejected."""
+        val_win = manager.get_split(TemporalSplit.VAL)
+
+        with pytest.raises(ValueError, match="lookback_days must be a positive integer"):
+            BufferedSplitWindow(target_window=val_win, lookback_days=0)
+
+        with pytest.raises(ValueError, match="lookback_days must be a positive integer"):
+            BufferedSplitWindow(target_window=val_win, lookback_days=-10)
+
+        with pytest.raises(TypeError, match="lookback_days must be an integer"):
+            BufferedSplitWindow(target_window=val_win, lookback_days="366")  # type: ignore
+
+        with pytest.raises(TypeError, match="lookback_days must be an integer"):
+            BufferedSplitWindow(target_window=val_win, lookback_days=True)  # type: ignore
+
+    def test_invalid_target_window_rejected(self):
+        """Non-SplitWindow object rejected as target_window."""
+        with pytest.raises(TypeError, match="target_window must be an instance of SplitWindow"):
+            BufferedSplitWindow(target_window="not_a_window")  # type: ignore
+
+    def test_validate_buffered_data_coverage_fully_covered(self, manager: TemporalSplitManager):
+        """12. Available data fully covering buffer and target returns (True, None)."""
+        # VAL buffered window requires 1999-10-01 to 2005-09-30
+        is_covered, reason = manager.validate_buffered_data_coverage(
+            available_start="1999-01-01",
+            available_end="2005-12-31",
+            split=TemporalSplit.VAL,
+        )
+        assert is_covered is True
+        assert reason is None
+
+    def test_validate_buffered_data_coverage_missing_buffer(self, manager: TemporalSplitManager):
+        """13, 15. Missing historical buffer returns False with clear explanation and no clipping."""
+        # Available data starts on target_start (2000-10-01), missing the buffer 1999-10-01 to 2000-09-30
+        is_covered, reason = manager.validate_buffered_data_coverage(
+            available_start="2000-10-01",
+            available_end="2005-09-30",
+            split="val",
+        )
+        assert is_covered is False
+        assert "Available data starts late at 2000-10-01" in str(reason)
+        assert "requires historical buffer from 1999-10-01" in str(reason)
+
+        # Confirm target window in manager was NOT modified
+        val_win = manager.get_split(TemporalSplit.VAL)
+        assert val_win.start_date == pd.Timestamp("2000-10-01")
+
+    def test_validate_buffered_data_coverage_missing_target(self, manager: TemporalSplitManager):
+        """14, 15. Missing target end returns False with clear explanation and no clipping."""
+        # Available data covers buffer start (1999-10-01) but ends early (2004-12-31) before target_end (2005-09-30)
+        is_covered, reason = manager.validate_buffered_data_coverage(
+            available_start="1999-10-01",
+            available_end="2004-12-31",
+            split="val",
+        )
+        assert is_covered is False
+        assert "Available data ends early at 2004-12-31" in str(reason)
+        assert "requires target through 2005-09-30" in str(reason)
+
+    def test_validate_buffered_data_coverage_reversed_available_dates_rejected(
+        self, manager: TemporalSplitManager
+    ):
+        """Reversed available date boundaries raise ValueError."""
+        with pytest.raises(ValueError, match="available_start .* must be <= available_end"):
+            manager.validate_buffered_data_coverage("2005-01-01", "2000-01-01", "val")
+
+    def test_real_camels_v1p2_buffered_coverage_smoke(self):
+        """
+        18. Integration smoke test against canonical local CAMELS-US v1.2 dataset:
+          D:/CAMELS_US/basin_dataset_public_v1p2
+        Verifies:
+          - TRAIN buffered window requires 1979-10-01 -> Incomplete (v1.2 begins in 1980).
+          - VAL buffered window (1999-10-01 to 2005-09-30) -> Fully covered.
+          - CAL buffered window (2004-09-30 to 2010-09-30) -> Fully covered.
+          - TEST buffered window requires through 2018-09-30 -> Incomplete (v1.2 ends 2014-12-31).
+          - Crucially, zero clipping occurs on any split or buffer!
+        """
+        canonical_v1p2_dir = Path("D:/CAMELS_US/basin_dataset_public_v1p2")
+        if not canonical_v1p2_dir.exists():
+            pytest.skip(f"Local CAMELS-US v1.2 dataset not found at {canonical_v1p2_dir}")
+
+        mgr = TemporalSplitManager()
+        # In CAMELS-US v1.2, observation and Daymet series span 1980-10-01 to 2014-12-31
+        v1p2_start = "1980-10-01"
+        v1p2_end = "2014-12-31"
+
+        # 1. TRAIN: Needs buffer from 1979-10-01 -> Incomplete
+        train_cov, train_msg = mgr.validate_buffered_data_coverage(
+            v1p2_start, v1p2_end, TemporalSplit.TRAIN
+        )
+        assert train_cov is False
+        assert "Available data starts late at 1980-10-01" in str(train_msg)
+        assert "requires historical buffer from 1979-10-01" in str(train_msg)
+
+        # 2. VAL: Needs buffer 1999-10-01 to 2005-09-30 -> Fully covered
+        val_cov, val_msg = mgr.validate_buffered_data_coverage(
+            v1p2_start, v1p2_end, TemporalSplit.VAL
+        )
+        assert val_cov is True
+        assert val_msg is None
+
+        # 3. CAL: Needs buffer 2004-09-30 to 2010-09-30 -> Fully covered
+        cal_cov, cal_msg = mgr.validate_buffered_data_coverage(
+            v1p2_start, v1p2_end, TemporalSplit.CAL
+        )
+        assert cal_cov is True
+        assert cal_msg is None
+
+        # 4. TEST: Needs target through 2018-09-30 -> Incomplete
+        test_cov, test_msg = mgr.validate_buffered_data_coverage(
+            v1p2_start, v1p2_end, TemporalSplit.TEST
+        )
+        assert test_cov is False
+        assert "Available data ends early at 2014-12-31" in str(test_msg)
+        assert "requires target through 2018-09-30" in str(test_msg)
+
+        # 5. Confirm frozen split definitions remain 100% unclipped
+        test_win = mgr.get_buffered_split(TemporalSplit.TEST)
+        assert test_win.buffered_start_date == pd.Timestamp("2009-09-30")
+        assert test_win.target_end_date == pd.Timestamp("2018-09-30")

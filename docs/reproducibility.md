@@ -28,7 +28,7 @@ Every experiment run must automatically record and persist an `experiment_meta.j
 | `config_hash` | String | SHA-256 hash of the exact configuration file contents |
 | `dataset_name` | String | Dataset identifier (e.g., `CAMELS-US`) |
 | `dataset_version` | String | Dataset release version (`v1.2`) |
-| `basin_registry_hash` | String | SHA-256 hash of `camels_us_benchmark_531.json` |
+| `basin_registry_hash` | String | SHA-256 hash of `camels_us_benchmark_531.json` (`8d046962...`) |
 | `temporal_split_definition` | Object | Exact date bounds for Train, Val, Cal, Test |
 | `random_seeds` | Object | Master global seed, PyTorch seed, NumPy seed, LightGBM seed |
 | `python_version` | String | Full sys.version string (e.g., `3.12.10`) |
@@ -36,6 +36,9 @@ Every experiment run must automatically record and persist an `experiment_meta.j
 | `dependencies` | Object | Exact installed package versions (Torch, LightGBM, Scikit-learn, etc.) |
 | `start_time_utc` | String | ISO-8601 execution start timestamp |
 | `end_time_utc` | String | ISO-8601 execution completion timestamp |
+
+> [!NOTE]
+> For complete upstream dataset provenance, schema contracts, file structures, and verification protocols for CAMELS-US v1.2, see [`docs/camels_us_provenance.md`](camels_us_provenance.md).
 
 ---
 

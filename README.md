@@ -100,13 +100,13 @@ Milestone 1.0 follows a rigorous, sequential execution plan:
 
 - [x] **R1.1 — CAMELS-US benchmark basin registry:** Canonical 531-basin registry and manifest verification.
 - [x] **R1.2 — CAMELS-US raw data loader:** Offline, unit-preserving parser for Daymet forcing, USGS streamflow, and catchment attributes.
-- [ ] **R1.3 — CAMELS-US Daymet forcing schema validation:** Structural schema and boundary validation for meteorological inputs. *(NEXT)*
-- [ ] **R1.4 — CAMELS-US discharge conversion validation:** Area-normalized discharge conversion ($cfs \to mm/\text{day}$).
-- [ ] **R1.5 — CAMELS-US missing-data quality control:** Streamflow QC masking and missing-rate filtering protocols.
-- [ ] **R1.6 — Leakage-safe temporal split manager:** Non-overlapping receptive fields across Train (`1980–2000`), Val (`2000–2005`), Cal (`2005–2010`), and Test (`2010–2018`).
-- [ ] **R1.7 — 366-day lookback buffer enforcement:** History buffer prepending without label evaluation contamination.
-- [ ] **R1.8 — Automated CAMELS-US data leakage test suite:** 14-point automated test suite guarding against temporal, spatial, and feature leakage.
-- [ ] **R1.9 — CAMELS-US provenance and reproducibility documentation:** Full audit trial and end-to-end data pipeline verification.
+- [x] **R1.3 — CAMELS-US Daymet forcing schema validation:** Structural schema and boundary validation for meteorological inputs.
+- [x] **R1.4 — CAMELS-US discharge conversion validation:** Area-normalized discharge conversion ($cfs \to mm/\text{day}$).
+- [x] **R1.5 — CAMELS-US missing-data quality control:** Streamflow QC masking and missing-rate filtering protocols.
+- [x] **R1.6 — Leakage-safe temporal split manager:** Non-overlapping receptive fields across Train (`1980–2000`), Val (`2000–2005`), Cal (`2005–2010`), and Test (`2010–2018`).
+- [x] **R1.7 — 366-day lookback buffer enforcement:** History buffer prepending without label evaluation contamination.
+- [x] **R1.8 — Automated CAMELS-US data leakage test suite:** 14-point automated test suite guarding against temporal, spatial, and feature leakage.
+- [x] **R1.9 — CAMELS-US provenance and reproducibility documentation:** Full audit trial and end-to-end data pipeline verification.
 
 ---
 

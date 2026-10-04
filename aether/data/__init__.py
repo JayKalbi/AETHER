@@ -25,6 +25,10 @@ from aether.data.qc import (
     identify_missing_streamflow,
     validate_basin_area_consistency,
 )
+from aether.data.split_manager import (
+    SplitWindow,
+    TemporalSplitManager,
+)
 
 __all__ = [
     "BenchmarkRegistry",
@@ -44,4 +48,6 @@ __all__ = [
     "identify_missing_streamflow",
     "calculate_streamflow_missingness",
     "validate_basin_area_consistency",
+    "SplitWindow",
+    "TemporalSplitManager",
 ]

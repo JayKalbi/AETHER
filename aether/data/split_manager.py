@@ -93,6 +93,82 @@ class SplitWindow:
         return pd.date_range(start=self.start_date, end=self.end_date, freq="D")
 
 
+# Default historical context buffer length (L=365 model sequence + h=1 forecast horizon)
+DEFAULT_LOOKBACK_DAYS: int = 366
+
+
+@dataclass(frozen=True)
+class BufferedSplitWindow:
+    """
+    Immutable representation of a temporal split prepended with a historical context buffer.
+
+    Attributes
+    ----------
+    target_window : SplitWindow
+        The authoritative target evaluation split [target_start, target_end].
+    lookback_days : int
+        Number of historical calendar days required prior to target_start (default 366).
+    """
+
+    target_window: SplitWindow
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.target_window, SplitWindow):
+            raise TypeError(
+                f"target_window must be an instance of SplitWindow, got {type(self.target_window).__name__}"
+            )
+        if not isinstance(self.lookback_days, int) or isinstance(self.lookback_days, bool):
+            raise TypeError(
+                f"lookback_days must be an integer, got {type(self.lookback_days).__name__}"
+            )
+        if self.lookback_days <= 0:
+            raise ValueError(f"lookback_days must be a positive integer, got {self.lookback_days}")
+
+    @property
+    def name(self) -> TemporalSplit:
+        """The canonical split identifier of the underlying target window."""
+        return self.target_window.name
+
+    @property
+    def target_start_date(self) -> pd.Timestamp:
+        """The inclusive starting calendar date of the target evaluation window."""
+        return self.target_window.start_date
+
+    @property
+    def target_end_date(self) -> pd.Timestamp:
+        """The inclusive ending calendar date of the target evaluation window."""
+        return self.target_window.end_date
+
+    @property
+    def buffered_start_date(self) -> pd.Timestamp:
+        """The inclusive starting calendar date of the historical context buffer."""
+        return self.target_window.start_date - pd.Timedelta(days=self.lookback_days)
+
+    @property
+    def buffer_end_date(self) -> pd.Timestamp:
+        """The inclusive ending calendar date of the historical context buffer (target_start - 1 day)."""
+        return self.target_window.start_date - pd.Timedelta(days=1)
+
+    @property
+    def buffer_days(self) -> int:
+        """Exact count of calendar days in the historical context buffer."""
+        return (self.buffer_end_date - self.buffered_start_date).days + 1
+
+    @property
+    def total_buffered_days(self) -> int:
+        """Total inclusive calendar days spanning [buffered_start_date, target_end_date]."""
+        return (self.target_end_date - self.buffered_start_date).days + 1
+
+    def get_buffer_date_range(self) -> pd.DatetimeIndex:
+        """Generates a complete daily DatetimeIndex spanning [buffered_start_date, buffer_end_date]."""
+        return pd.date_range(start=self.buffered_start_date, end=self.buffer_end_date, freq="D")
+
+    def get_total_date_range(self) -> pd.DatetimeIndex:
+        """Generates a complete daily DatetimeIndex spanning [buffered_start_date, target_end_date]."""
+        return pd.date_range(start=self.buffered_start_date, end=self.target_end_date, freq="D")
+
+
 class TemporalSplitManager:
     """
     Manages and validates frozen temporal partitions (TRAIN, VAL, CAL, TEST).
@@ -272,6 +348,67 @@ class TemporalSplitManager:
         if missing_reasons:
             explanation = (
                 f"Data coverage incomplete for split '{window.name.value}': "
+                + "; ".join(missing_reasons)
+                + "."
+            )
+            return False, explanation
+
+        return True, None
+
+    def get_buffered_split(
+        self,
+        split: Union[TemporalSplit, str],
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    ) -> BufferedSplitWindow:
+        """
+        Returns a BufferedSplitWindow prepending the requested historical context
+        buffer (default 366 days) to the target evaluation split.
+        """
+        target_win = self.get_split(split)
+        return BufferedSplitWindow(target_window=target_win, lookback_days=lookback_days)
+
+    def validate_buffered_data_coverage(
+        self,
+        available_start: Union[str, pd.Timestamp],
+        available_end: Union[str, pd.Timestamp],
+        split: Union[TemporalSplit, str],
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Validates whether available data range [available_start, available_end]
+        fully covers BOTH the historical context buffer [buffered_start_date, buffer_end_date]
+        AND the target evaluation interval [target_start_date, target_end_date].
+
+        Returns (is_covered, explanation).
+        Does NOT alter or clip the split definition.
+        """
+        buffered_win = self.get_buffered_split(split, lookback_days=lookback_days)
+        start_ts = _parse_and_validate_timestamp(available_start)
+        end_ts = _parse_and_validate_timestamp(available_end)
+
+        if start_ts > end_ts:
+            raise ValueError(
+                f"available_start ({start_ts.strftime('%Y-%m-%d')}) must be <= "
+                f"available_end ({end_ts.strftime('%Y-%m-%d')})"
+            )
+
+        missing_reasons = []
+        if start_ts > buffered_win.buffered_start_date:
+            missing_reasons.append(
+                f"Available data starts late at {start_ts.strftime('%Y-%m-%d')} "
+                f"(buffered split '{buffered_win.name.value}' requires historical buffer from "
+                f"{buffered_win.buffered_start_date.strftime('%Y-%m-%d')})"
+            )
+        if end_ts < buffered_win.target_end_date:
+            missing_reasons.append(
+                f"Available data ends early at {end_ts.strftime('%Y-%m-%d')} "
+                f"(split '{buffered_win.name.value}' requires target through "
+                f"{buffered_win.target_end_date.strftime('%Y-%m-%d')})"
+            )
+
+        if missing_reasons:
+            explanation = (
+                f"Buffered data coverage incomplete for split '{buffered_win.name.value}': "
                 + "; ".join(missing_reasons)
                 + "."
             )

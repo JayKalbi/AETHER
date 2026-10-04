@@ -26,6 +26,8 @@ from aether.data.qc import (
     validate_basin_area_consistency,
 )
 from aether.data.split_manager import (
+    DEFAULT_LOOKBACK_DAYS,
+    BufferedSplitWindow,
     SplitWindow,
     TemporalSplitManager,
 )
@@ -48,6 +50,8 @@ __all__ = [
     "identify_missing_streamflow",
     "calculate_streamflow_missingness",
     "validate_basin_area_consistency",
+    "DEFAULT_LOOKBACK_DAYS",
+    "BufferedSplitWindow",
     "SplitWindow",
     "TemporalSplitManager",
 ]
